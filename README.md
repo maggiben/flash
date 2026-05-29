@@ -131,10 +131,16 @@ All under `specs/001-inventory-reservation/` plus `.specify/memory/constitution.
 
 ## Time spent
 
-~4.5 hours (spec artifacts, backend, frontend, Docker, tests, documentation).
+| Phase | Approximate time |
+|-------|------------------|
+| Initial challenge (Spec Kit, backend, frontend, Docker, tests, docs) | ~4–5 hours |
+| Follow-up (reservation confirm feature, chat/docs export, pushes) | ~30–60 minutes |
+| **Reasonable total** | **~5–6 hours** |
+
+Git activity on 2026-05-29 spans ~50 minutes of commit timestamps; the total above includes Docker builds, test runs, review, and conversation time not reflected in commits.
 
 ## Assumptions
 
 - User identity via `X-User-Id` header (stored in browser `localStorage`).
 - Frontend sync via **3-second polling** (no WebSocket).
-- No separate “confirm” endpoint; TTL applies to all `active` reservations.
+- Reservation confirm is on `main` (`POST /api/v1/reservations/{id}/confirm`); only unconfirmed `active` holds auto-expire after 60s.
