@@ -45,9 +45,10 @@ type ErrorResponse struct {
 }
 
 const (
-	StatusActive   = "active"
-	StatusReleased = "released"
-	StatusExpired  = "expired"
+	StatusActive    = "active"
+	StatusConfirmed = "confirmed"
+	StatusReleased  = "released"
+	StatusExpired   = "expired"
 )
 
 const (
@@ -58,4 +59,5 @@ const (
 	ErrValidation           = "VALIDATION_ERROR"
 	ErrMissingUserID        = "MISSING_USER_ID"
 	ErrMissingIdempotencyKey = "MISSING_IDEMPOTENCY_KEY"
+	ErrInvalidState          = "INVALID_STATE"
 )

@@ -53,7 +53,7 @@ func (s *ReservationService) ListActiveReservations(ctx context.Context, userID 
 		SELECT r.id, r.item_id, i.name, r.quantity, r.status, r.expires_at, r.created_at
 		FROM reservations r
 		JOIN items i ON i.id = r.item_id
-		WHERE r.user_id = $1 AND r.status = 'active'
+		WHERE r.user_id = $1 AND r.status IN ('active', 'confirmed')
 		ORDER BY r.created_at DESC`, userID)
 	if err != nil {
 		return nil, err
@@ -204,7 +204,7 @@ func (s *ReservationService) ReleaseReservation(ctx context.Context, userID stri
 		return models.ReleaseResult{}, fmt.Errorf("%s: not your reservation", models.ErrForbidden)
 	}
 
-	if status != models.StatusActive {
+	if status != models.StatusActive && status != models.StatusConfirmed {
 		if err := tx.Commit(ctx); err != nil {
 			return models.ReleaseResult{}, err
 		}
@@ -213,7 +213,7 @@ func (s *ReservationService) ReleaseReservation(ctx context.Context, userID stri
 
 	tag, err := tx.Exec(ctx, `
 		UPDATE reservations SET status = 'released', updated_at = $2
-		WHERE id = $1 AND status = 'active'`, reservationID, s.clock.Now())
+		WHERE id = $1 AND status IN ('active', 'confirmed')`, reservationID, s.clock.Now())
 	if err != nil {
 		return models.ReleaseResult{}, err
 	}
@@ -237,7 +237,68 @@ func (s *ReservationService) ReleaseReservation(ctx context.Context, userID stri
 	return models.ReleaseResult{ID: reservationID, Status: models.StatusReleased, Noop: false}, nil
 }
 
-// ExpirationService expires active reservations past TTL.
+func (s *ReservationService) ConfirmReservation(ctx context.Context, userID string, reservationID uuid.UUID) (models.Reservation, bool, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return models.Reservation{}, false, err
+	}
+	defer tx.Rollback(ctx)
+
+	var ownerID, status, itemName string
+	var itemID uuid.UUID
+	var quantity int
+	var expiresAt, createdAt time.Time
+	err = tx.QueryRow(ctx, `
+		SELECT r.user_id, r.status, r.item_id, i.name, r.quantity, r.expires_at, r.created_at
+		FROM reservations r
+		JOIN items i ON i.id = r.item_id
+		WHERE r.id = $1 FOR UPDATE`, reservationID).Scan(
+		&ownerID, &status, &itemID, &itemName, &quantity, &expiresAt, &createdAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return models.Reservation{}, false, fmt.Errorf("%s: reservation not found", models.ErrNotFound)
+	}
+	if err != nil {
+		return models.Reservation{}, false, err
+	}
+	if ownerID != userID {
+		return models.Reservation{}, false, fmt.Errorf("%s: not your reservation", models.ErrForbidden)
+	}
+
+	if status == models.StatusConfirmed {
+		if err := tx.Commit(ctx); err != nil {
+			return models.Reservation{}, false, err
+		}
+		return models.Reservation{
+			ID: reservationID, ItemID: itemID, ItemName: itemName, Quantity: quantity,
+			Status: models.StatusConfirmed, ExpiresAt: expiresAt, CreatedAt: createdAt,
+		}, true, nil
+	}
+
+	if status != models.StatusActive {
+		return models.Reservation{}, false, fmt.Errorf("%s: only active reservations can be confirmed (current: %s)", models.ErrInvalidState, status)
+	}
+
+	now := s.clock.Now()
+	err = tx.QueryRow(ctx, `
+		UPDATE reservations SET status = 'confirmed', updated_at = $2
+		WHERE id = $1 AND status = 'active'
+		RETURNING expires_at`,
+		reservationID, now).Scan(&expiresAt)
+	if err != nil {
+		return models.Reservation{}, false, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return models.Reservation{}, false, err
+	}
+
+	return models.Reservation{
+		ID: reservationID, ItemID: itemID, ItemName: itemName, Quantity: quantity,
+		Status: models.StatusConfirmed, ExpiresAt: expiresAt, CreatedAt: createdAt,
+	}, false, nil
+}
+
+// ExpirationService expires unconfirmed (active) reservations past TTL.
 type ExpirationService struct {
 	pool  *pgxpool.Pool
 	clock clock.Clock
@@ -332,4 +393,10 @@ func (s *ReservationService) CountActiveReservations(ctx context.Context, itemID
 	err := s.pool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM reservations WHERE item_id = $1 AND status = 'active'`, itemID).Scan(&n)
 	return n, err
+}
+
+func (s *ReservationService) GetReservationStatus(ctx context.Context, id uuid.UUID) (string, error) {
+	var status string
+	err := s.pool.QueryRow(ctx, `SELECT status FROM reservations WHERE id = $1`, id).Scan(&status)
+	return status, err
 }

@@ -40,6 +40,7 @@ func NewRouter(svc *service.ReservationService, openAPIPath string) http.Handler
 		r.Route("/reservations", func(r chi.Router) {
 			r.Get("/", s.listReservations)
 			r.Post("/", s.createReservation)
+			r.Post("/{id}/confirm", s.confirmReservation)
 			r.Delete("/{id}", s.releaseReservation)
 		})
 	})
@@ -144,6 +145,27 @@ func (s *Server) releaseReservation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (s *Server) confirmReservation(w http.ResponseWriter, r *http.Request) {
+	userID := strings.TrimSpace(r.Header.Get("X-User-Id"))
+	if userID == "" {
+		writeError(w, http.StatusBadRequest, models.ErrMissingUserID, "X-User-Id header is required")
+		return
+	}
+	idStr := chi.URLParam(r, "id")
+	resID, err := uuid.Parse(idStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, models.ErrValidation, "invalid reservation id")
+		return
+	}
+
+	reservation, _, err := s.reservations.ConfirmReservation(r.Context(), userID, resID)
+	if err != nil {
+		mapServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, reservation)
+}
+
 func mapServiceError(w http.ResponseWriter, err error) {
 	msg := err.Error()
 	switch {
@@ -157,6 +179,8 @@ func mapServiceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusForbidden, models.ErrForbidden, strings.TrimPrefix(msg, models.ErrForbidden+": "))
 	case strings.Contains(msg, models.ErrValidation):
 		writeError(w, http.StatusBadRequest, models.ErrValidation, strings.TrimPrefix(msg, models.ErrValidation+": "))
+	case strings.Contains(msg, models.ErrInvalidState):
+		writeError(w, http.StatusConflict, models.ErrInvalidState, strings.TrimPrefix(msg, models.ErrInvalidState+": "))
 	default:
 		writeError(w, http.StatusInternalServerError, "INTERNAL", msg)
 	}
