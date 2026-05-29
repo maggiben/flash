@@ -30,7 +30,7 @@ paths:
   /api/v1/reservations:
     get:
       operationId: listUserReservations
-      summary: List active reservations for the current user
+      summary: List active and confirmed reservations for the current user
       tags: [Reservations]
       parameters:
         - $ref: "#/components/parameters/UserIdHeader"
@@ -77,6 +77,33 @@ paths:
                 $ref: "#/components/schemas/Reservation"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/v1/reservations/{id}/confirm:
+    post:
+      operationId: confirmReservation
+      summary: Confirm a reservation (stops TTL expiration)
+      tags: [Reservations]
+      parameters:
+        - $ref: "#/components/parameters/UserIdHeader"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Confirmed (or already confirmed)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reservation"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -173,7 +200,7 @@ components:
           type: integer
         status:
           type: string
-          enum: [active, released, expired]
+          enum: [active, confirmed, released, expired]
         expires_at:
           type: string
           format: date-time

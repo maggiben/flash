@@ -45,4 +45,9 @@ Branch **`feat/reservation-confirmation`** adds:
 - Frontend **Confirm** action
 - Tests and OpenAPI updates
 
-See that branch and `specs/001-inventory-reservation/` updates for the executable plan.
+**Branch `feat/reservation-confirmation`** implements the plan in `specs/001-inventory-reservation/confirm-plan.md`:
+
+- `POST /api/v1/reservations/{id}/confirm`
+- Status `confirmed` (no TTL expiry)
+- Expiration only for unconfirmed `active` holds
+- Frontend **Confirm** button

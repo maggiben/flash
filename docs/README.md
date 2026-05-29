@@ -11,3 +11,10 @@
 **LLM:** Cursor Agent (Claude)
 
 Covers the full challenge workflow: Spec Kit artifacts, Dockerized implementation, git commits, tests, and README updates.
+
+## Reservation confirmation
+
+| File | Description |
+|------|-------------|
+| [`reservation-confirmation-decision.md`](./reservation-confirmation-decision.md) | Why `main` omitted confirm, and strict vs MVP reading |
+| [`../specs/001-inventory-reservation/confirm-plan.md`](../specs/001-inventory-reservation/confirm-plan.md) | Implementation plan on branch `feat/reservation-confirmation` |
