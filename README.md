@@ -49,14 +49,65 @@ docker compose --profile test run --rm test
 docker compose --profile test run --rm frontend-test
 ```
 
+### Latest test run (performance)
+
+Captured on Docker Desktop (Apple Silicon), with Postgres already warm from a prior compose run.
+
+**Backend** — `docker compose --profile test run --rm test`
+
+```
+=== RUN   TestConcurrentLastItem
+--- PASS: TestConcurrentLastItem (0.03s)
+=== RUN   TestConcurrentTenUnits
+--- PASS: TestConcurrentTenUnits (0.03s)
+=== RUN   TestReserveIdempotencyParallel
+--- PASS: TestReserveIdempotencyParallel (0.02s)
+=== RUN   TestReleaseIdempotency
+--- PASS: TestReleaseIdempotency (0.02s)
+=== RUN   TestExpirationReturnsStock
+--- PASS: TestExpirationReturnsStock (0.02s)
+PASS
+ok  	github.com/flash-reservation/backend/test/integration	0.118s
+```
+
+| Test | Load | Result | Time |
+|------|------|--------|------|
+| `TestConcurrentLastItem` | 55 goroutines, 1 unit in stock | 1 success, no over-sell | **30 ms** |
+| `TestConcurrentTenUnits` | 100 goroutines, 10 units in stock | 10 success / 90 rejections | **30 ms** |
+| `TestReserveIdempotencyParallel` | 2 parallel POSTs, same key | 1 reservation, 1 stock decrement | **20 ms** |
+| `TestReleaseIdempotency` | 2 DELETEs on same reservation | Stock returned once | **20 ms** |
+| `TestExpirationReturnsStock` | TTL + expiration worker | Reserved → 0 after expire | **20 ms** |
+| **Package total** | 5 tests vs real PostgreSQL | **5/5 PASS** | **118 ms** |
+
+**Frontend** — `docker compose --profile test run --rm frontend-test`
+
+```
+ RUN  v3.2.4 /app
+
+ ✓ src/utils/reservationTimer.test.ts (4 tests) 2ms
+ ✓ src/components/InventoryList.test.tsx (2 tests) 138ms
+
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+   Duration  889ms (transform 119ms, setup 77ms, collect 189ms, tests 139ms, environment 654ms, prepare 161ms)
+```
+
+| Suite | Tests | Test execution | Total (incl. jsdom) |
+|-------|-------|----------------|---------------------|
+| `reservationTimer.test.ts` | 4 | **2 ms** | — |
+| `InventoryList.test.tsx` | 2 (happy path + insufficient stock) | **138 ms** | — |
+| **Vitest run** | **6/6 PASS** | **139 ms** | **889 ms** |
+
+Wall-clock for each compose command is typically **2–7 s** (image + container startup); the numbers above are in-container test time only.
+
 ### Test coverage (challenge rubric)
 
 | Test | Location |
 |------|----------|
-| 50+ concurrent reserve, last item | `backend/test/integration/reservation_test.go` |
-| 100 concurrent, 10 units | same |
-| Parallel idempotency (reserve) | same |
-| Double release idempotency | same |
+| 50+ concurrent reserve, last item | `backend/test/integration/reservation_test.go` → `TestConcurrentLastItem` |
+| 100 concurrent, 10 units | same → `TestConcurrentTenUnits` |
+| Parallel idempotency (reserve) | same → `TestReserveIdempotencyParallel` |
+| Double release idempotency | same → `TestReleaseIdempotency` |
 | Timer logic | `frontend/src/utils/reservationTimer.test.ts` |
 | Reserve happy path + insufficient stock UI | `frontend/src/components/InventoryList.test.tsx` |
 
