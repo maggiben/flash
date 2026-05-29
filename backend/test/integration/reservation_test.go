@@ -241,5 +241,94 @@ func TestExpirationReturnsStock(t *testing.T) {
 	require.Equal(t, 0, active)
 }
 
-// Ensure uuid import used in tests
+func TestConfirmPreventsExpiration(t *testing.T) {
+	ctx := context.Background()
+	pool, err := db.NewPool(ctx, testDatabaseURL(t))
+	require.NoError(t, err)
+	t.Cleanup(func() { pool.Close() })
+	require.NoError(t, db.RunMigrations(ctx, pool, migrationsDir(t)))
+	require.NoError(t, resetDatabase(ctx, pool))
+
+	fixed := &clock.Fixed{T: time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)}
+	svc := service.NewReservationService(pool, fixed, 60)
+	expiration := service.NewExpirationService(pool, fixed)
+
+	itemID, err := svc.CreateTestItem(ctx, "confirm-hold", 5)
+	require.NoError(t, err)
+
+	res, _, err := svc.CreateReservation(ctx, "confirm-user", "confirm-key", models.CreateReservationRequest{
+		ItemID: itemID, Quantity: 2,
+	})
+	require.NoError(t, err)
+
+	confirmed, noop, err := svc.ConfirmReservation(ctx, "confirm-user", res.ID)
+	require.NoError(t, err)
+	require.False(t, noop)
+	require.Equal(t, models.StatusConfirmed, confirmed.Status)
+
+	fixed.T = fixed.T.Add(61 * time.Second)
+	require.NoError(t, expiration.ExpireOnce(ctx))
+
+	status, err := svc.GetReservationStatus(ctx, res.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.StatusConfirmed, status)
+
+	_, reserved, err := svc.GetItem(ctx, itemID)
+	require.NoError(t, err)
+	require.Equal(t, 2, reserved, "confirmed hold keeps stock reserved")
+}
+
+func TestConfirmIdempotent(t *testing.T) {
+	svc := setupService(t)
+	ctx := context.Background()
+
+	itemID, err := svc.CreateTestItem(ctx, "confirm-idem", 3)
+	require.NoError(t, err)
+
+	res, _, err := svc.CreateReservation(ctx, "user-idem", "idem-key", models.CreateReservationRequest{
+		ItemID: itemID, Quantity: 1,
+	})
+	require.NoError(t, err)
+
+	_, noop1, err := svc.ConfirmReservation(ctx, "user-idem", res.ID)
+	require.NoError(t, err)
+	require.False(t, noop1)
+
+	_, noop2, err := svc.ConfirmReservation(ctx, "user-idem", res.ID)
+	require.NoError(t, err)
+	require.True(t, noop2)
+
+	_, reserved, err := svc.GetItem(ctx, itemID)
+	require.NoError(t, err)
+	require.Equal(t, 1, reserved)
+}
+
+func TestCannotConfirmExpired(t *testing.T) {
+	ctx := context.Background()
+	pool, err := db.NewPool(ctx, testDatabaseURL(t))
+	require.NoError(t, err)
+	t.Cleanup(func() { pool.Close() })
+	require.NoError(t, db.RunMigrations(ctx, pool, migrationsDir(t)))
+	require.NoError(t, resetDatabase(ctx, pool))
+
+	fixed := &clock.Fixed{T: time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)}
+	svc := service.NewReservationService(pool, fixed, 60)
+	expiration := service.NewExpirationService(pool, fixed)
+
+	itemID, err := svc.CreateTestItem(ctx, "confirm-expired", 3)
+	require.NoError(t, err)
+
+	res, _, err := svc.CreateReservation(ctx, "exp-user", "exp-key", models.CreateReservationRequest{
+		ItemID: itemID, Quantity: 1,
+	})
+	require.NoError(t, err)
+
+	fixed.T = fixed.T.Add(61 * time.Second)
+	require.NoError(t, expiration.ExpireOnce(ctx))
+
+	_, _, err = svc.ConfirmReservation(ctx, "exp-user", res.ID)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), models.ErrInvalidState)
+}
+
 var _ = uuid.Nil
