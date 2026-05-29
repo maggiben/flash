@@ -1,0 +1,235 @@
+openapi: 3.1.0
+info:
+  title: Flash Sale Reservation API
+  version: 1.0.0
+  description: REST API for atomic inventory reservations with TTL and idempotency.
+
+servers:
+  - url: http://localhost:8080
+    description: Local Docker
+
+paths:
+  /api/v1/inventory:
+    get:
+      operationId: listInventory
+      summary: List inventory items with reserved and available counts
+      tags: [Inventory]
+      responses:
+        "200":
+          description: Inventory list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InventoryItem"
+
+  /api/v1/reservations:
+    get:
+      operationId: listUserReservations
+      summary: List active reservations for the current user
+      tags: [Reservations]
+      parameters:
+        - $ref: "#/components/parameters/UserIdHeader"
+      responses:
+        "200":
+          description: Active reservations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reservations:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Reservation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+    post:
+      operationId: createReservation
+      summary: Reserve units of an item (idempotent)
+      tags: [Reservations]
+      parameters:
+        - $ref: "#/components/parameters/UserIdHeader"
+        - $ref: "#/components/parameters/IdempotencyKeyHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReservationRequest"
+      responses:
+        "201":
+          description: Reservation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reservation"
+        "200":
+          description: Idempotent replay of prior successful request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reservation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/v1/reservations/{id}:
+    delete:
+      operationId: releaseReservation
+      summary: Release (cancel) a reservation (idempotent)
+      tags: [Reservations]
+      parameters:
+        - $ref: "#/components/parameters/UserIdHeader"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Released or already released (no-op)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  parameters:
+    UserIdHeader:
+      name: X-User-Id
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Caller identity (MVP — no auth)
+
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+
+  schemas:
+    InventoryItem:
+      type: object
+      required: [id, name, total_quantity, reserved_quantity, available_quantity]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        total_quantity:
+          type: integer
+          minimum: 0
+        reserved_quantity:
+          type: integer
+          minimum: 0
+        available_quantity:
+          type: integer
+          minimum: 0
+
+    CreateReservationRequest:
+      type: object
+      required: [item_id, quantity]
+      properties:
+        item_id:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+          minimum: 1
+
+    Reservation:
+      type: object
+      required: [id, item_id, item_name, quantity, status, expires_at, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        item_id:
+          type: string
+          format: uuid
+        item_name:
+          type: string
+        quantity:
+          type: integer
+        status:
+          type: string
+          enum: [active, released, expired]
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    ReleaseResponse:
+      type: object
+      required: [id, status, noop]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [released, expired]
+        noop:
+          type: boolean
+          description: true if reservation was already released/expired
+
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+    Forbidden:
+      description: Not allowed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+    Conflict:
+      description: Insufficient stock or idempotency conflict
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
