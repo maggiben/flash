@@ -178,6 +178,11 @@ body {
   color: #93c5fd;
 }
 
+.badge-confirmed {
+  background: #14532d;
+  color: #86efac;
+}
+
 .badge-warn {
   background: #422006;
   color: #fcd34d;

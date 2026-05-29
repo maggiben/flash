@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchReservations, releaseReservation } from '../api/client';
+import { confirmReservation, fetchReservations, releaseReservation } from '../api/client';
 import { ReservationRow } from './ReservationRow';
 
 const POLL_MS = 3000;
@@ -15,6 +15,16 @@ export function ReservationPanel() {
     refetchInterval: POLL_MS,
   });
 
+  const confirm = useMutation({
+    mutationFn: confirmReservation,
+    onSuccess: () => {
+      setMessage({ text: 'Reservation confirmed — will not expire.', isError: false });
+      void queryClient.invalidateQueries({ queryKey: ['reservations'] });
+      void queryClient.invalidateQueries({ queryKey: ['inventory'] });
+    },
+    onError: (err: Error) => setMessage({ text: err.message, isError: true }),
+  });
+
   const release = useMutation({
     mutationFn: releaseReservation,
     onSuccess: () => {
@@ -27,7 +37,7 @@ export function ReservationPanel() {
 
   return (
     <section className="panel" aria-labelledby="reservations-heading">
-      <h2 id="reservations-heading">Your active reservations</h2>
+      <h2 id="reservations-heading">Your reservations</h2>
       {isLoading && <p className="status">Loading reservations…</p>}
       {isError && <p className="status error" role="alert">{(error as Error).message}</p>}
       {message.text && (
@@ -38,13 +48,15 @@ export function ReservationPanel() {
       {!isLoading && !isError && (
         <ul className="reservation-list">
           {(data ?? []).length === 0 ? (
-            <li className="empty">No active reservations</li>
+            <li className="empty">No reservations</li>
           ) : (
             data!.map((r) => (
               <ReservationRow
                 key={r.id}
                 reservation={r}
+                onConfirm={(id) => confirm.mutate(id)}
                 onRelease={(id) => release.mutate(id)}
+                confirmingId={confirm.isPending ? (confirm.variables ?? null) : null}
                 releasingId={release.isPending ? (release.variables ?? null) : null}
               />
             ))

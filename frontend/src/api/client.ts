@@ -11,7 +11,7 @@ export type Reservation = {
   item_id: string;
   item_name: string;
   quantity: number;
-  status: 'active' | 'released' | 'expired';
+  status: 'active' | 'confirmed' | 'released' | 'expired';
   expires_at: string;
   created_at: string;
 };
@@ -68,6 +68,15 @@ export async function createReservation(itemId: string, quantity: number): Promi
       'Idempotency-Key': crypto.randomUUID(),
     },
     body: JSON.stringify({ item_id: itemId, quantity }),
+  });
+  if (!res.ok) throw await parseError(res);
+  return (await res.json()) as Reservation;
+}
+
+export async function confirmReservation(id: string): Promise<Reservation> {
+  const res = await fetch(`/api/v1/reservations/${id}/confirm`, {
+    method: 'POST',
+    headers: { 'X-User-Id': getUserId() },
   });
   if (!res.ok) throw await parseError(res);
   return (await res.json()) as Reservation;
